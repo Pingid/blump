@@ -8,9 +8,10 @@ use globset::GlobSet;
 
 mod default;
 mod rust;
+mod typescript;
 
 pub fn specs() -> Vec<LangSpec> {
-    vec![rust::spec(), default::spec()]
+    vec![rust::spec(), typescript::spec(), default::spec()]
 }
 
 #[derive(Debug, Default, Clone)]
@@ -33,14 +34,16 @@ pub struct LangSpec {
 pub enum SpecMatch {
     #[default]
     Match,
-    Ext(String),
+    Ext(Vec<String>),
 }
 
 impl SpecMatch {
     pub fn spec_matches(&self, context: &LangContext) -> bool {
         match self {
             SpecMatch::Match => true,
-            SpecMatch::Ext(ext) => context.path.extension().and_then(|s| s.to_str()) == Some(ext),
+            SpecMatch::Ext(ext) => ext
+                .iter()
+                .any(|e| context.path.extension().and_then(|s| s.to_str()) == Some(e)),
         }
     }
 }

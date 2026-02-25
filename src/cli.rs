@@ -208,6 +208,7 @@ mod tests {
     use globset::GlobSetBuilder;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    #[cfg(unix)]
     fn unique_tmp_dir(name: &str) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -280,7 +281,10 @@ mod tests {
 
         let child = hidden.join("file.txt");
         let child_ctx = ctx.child(&child);
-        assert!(!child_ctx.excluded(), "explicit input subtree should not be excluded");
+        assert!(
+            !child_ctx.excluded(),
+            "explicit input subtree should not be excluded"
+        );
     }
 
     #[test]
@@ -300,6 +304,9 @@ mod tests {
         assert!(!ctx.excluded());
 
         let hidden_ctx = ctx.child(&hidden);
-        assert!(hidden_ctx.excluded(), "hidden paths should be excluded by default");
+        assert!(
+            hidden_ctx.excluded(),
+            "hidden paths should be excluded by default"
+        );
     }
 }

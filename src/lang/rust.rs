@@ -12,7 +12,7 @@ pub fn spec() -> LangSpec {
                 .action(clap::ArgAction::SetTrue)
                 .global(true),
         ],
-        matches: SpecMatch::Ext("rs".to_string()),
+        matches: SpecMatch::Ext(vec!["rs".to_string()]),
         sort: SpecSort::InOrder(vec![
             "main.rs".to_string(),
             "lib.rs".to_string(),
