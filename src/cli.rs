@@ -6,7 +6,7 @@ use std::{
     path::PathBuf,
 };
 
-use crate::lang::{LangContext, specs};
+use crate::lang::{LangContext, normalize_input_roots, specs};
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = build_cli();
@@ -48,8 +48,15 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let excludes = exclude.build().unwrap();
     let defaults_enabled = !matches.get_flag("no-default-excludes");
+    let input_roots = normalize_input_roots(&inputs);
     for path in inputs {
-        let mut context = LangContext::new(&matches, &path, &excludes, defaults_enabled);
+        let mut context = LangContext::new(
+            &matches,
+            &path,
+            &excludes,
+            defaults_enabled,
+            &input_roots,
+        );
         match handle_path(&mut context) {
             Ok(_) => (),
             Err(e) => {
@@ -87,6 +94,12 @@ fn build_cli() -> Command {
                 .help("Do not follow symlinks (skip symlinked files and directories)")
                 .action(ArgAction::SetTrue)
                 .global(true),
+        )
+        .arg(
+            Arg::new("relative-to-cwd")
+                .long("relative-to-cwd")
+                .help("Write paths relative to the current directory instead of the closest input path")
+                .action(ArgAction::SetTrue),
         )
         .arg(
             Arg::new("inputs")
@@ -230,7 +243,8 @@ mod tests {
             .try_get_matches_from(["join", root.to_str().unwrap()])
             .unwrap();
         let excludes = GlobSetBuilder::new().build().unwrap();
-        let mut ctx = LangContext::new(&matches, &root, &excludes, true);
+        let input_roots = normalize_input_roots(&[root.clone()]);
+        let mut ctx = LangContext::new(&matches, &root, &excludes, true, &input_roots);
         assert!(ctx.visit());
 
         let loop_path = root.join("loop");
@@ -251,7 +265,8 @@ mod tests {
             .try_get_matches_from(["join", "--no-follow-symlinks", root.to_str().unwrap()])
             .unwrap();
         let excludes = GlobSetBuilder::new().build().unwrap();
-        let mut ctx = LangContext::new(&matches, &root, &excludes, true);
+        let input_roots = normalize_input_roots(&[root.clone()]);
+        let mut ctx = LangContext::new(&matches, &root, &excludes, true, &input_roots);
         assert!(ctx.visit());
 
         let loop_path = root.join("loop");
@@ -275,8 +290,8 @@ mod tests {
             .try_get_matches_from(["join", hidden.to_str().unwrap()])
             .unwrap();
         let excludes = GlobSetBuilder::new().build().unwrap();
-
-        let ctx = LangContext::new(&matches, &hidden, &excludes, true);
+        let input_roots = normalize_input_roots(&[hidden.clone()]);
+        let ctx = LangContext::new(&matches, &hidden, &excludes, true, &input_roots);
         assert!(!ctx.excluded(), "explicit input should not be excluded");
 
         let child = hidden.join("file.txt");
@@ -299,8 +314,8 @@ mod tests {
             .try_get_matches_from(["join", root.to_str().unwrap()])
             .unwrap();
         let excludes = GlobSetBuilder::new().build().unwrap();
-
-        let ctx = LangContext::new(&matches, &root, &excludes, true);
+        let input_roots = normalize_input_roots(&[root.clone()]);
+        let ctx = LangContext::new(&matches, &root, &excludes, true, &input_roots);
         assert!(!ctx.excluded());
 
         let hidden_ctx = ctx.child(&hidden);

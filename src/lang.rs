@@ -86,9 +86,10 @@ pub enum SpecFormat {
 
 impl SpecFormat {
     pub fn format_contents(&self, context: &LangContext, contents: String) -> String {
+        let path = context.display_path();
         match self {
             SpecFormat::CodeBlockPathExt => format_code_block(
-                context.path,
+                &path,
                 context
                     .path
                     .extension()
@@ -96,13 +97,13 @@ impl SpecFormat {
                     .unwrap_or(""),
                 contents,
             ),
-            SpecFormat::CodeBlock(lang) => format_code_block(context.path, lang, contents),
+            SpecFormat::CodeBlock(lang) => format_code_block(&path, lang, contents),
         }
     }
 }
 
 fn format_code_block(path: &Path, lang: &str, contents: String) -> String {
-    format!("### {path:?}\n```{lang}\n{contents}\n```\n\n")
+    format!("### {}\n```{lang}\n{contents}\n```\n\n", path.display())
 }
 
 #[derive(Debug, Default, Clone)]
@@ -131,6 +132,7 @@ pub struct LangContext<'a> {
     /// Indicates path was explicitly provided by the user.
     /// When true, exclude rules are not applied for this path.
     pub provided: bool,
+    pub input_roots: &'a [PathBuf],
 }
 
 impl<'a> LangContext<'a> {
@@ -139,6 +141,7 @@ impl<'a> LangContext<'a> {
         path: &'a Path,
         excludes: &'a GlobSet,
         defaults_enabled: bool,
+        input_roots: &'a [PathBuf],
     ) -> Self {
         let provided = excludes.is_match(path) || (defaults_enabled && has_dot_component(path));
         Self {
@@ -148,6 +151,7 @@ impl<'a> LangContext<'a> {
             excludes,
             defaults_enabled,
             provided,
+            input_roots,
         }
     }
 
@@ -159,7 +163,16 @@ impl<'a> LangContext<'a> {
             excludes: self.excludes,
             defaults_enabled: self.defaults_enabled,
             provided: self.provided,
+            input_roots: self.input_roots,
         }
+    }
+
+    pub fn display_path(&self) -> PathBuf {
+        display_path(
+            self.path,
+            self.input_roots,
+            self.args.get_flag("relative-to-cwd"),
+        )
     }
 
     pub fn visit(&mut self) -> bool {
@@ -194,6 +207,64 @@ impl<'a> LangContext<'a> {
     }
 }
 
+pub fn normalize_input_roots(inputs: &[PathBuf]) -> Vec<PathBuf> {
+    inputs.iter().map(|p| absolutize(p)).collect()
+}
+
+fn display_path(path: &Path, input_roots: &[PathBuf], relative_to_cwd: bool) -> PathBuf {
+    let abs_path = absolutize(path);
+    if relative_to_cwd {
+        return strip_or_self(
+            &abs_path,
+            &std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+        );
+    }
+
+    let mut best: Option<&Path> = None;
+    for root in input_roots {
+        if is_under_or_equal(&abs_path, root) {
+            if best.is_none_or(|b| component_count(root) > component_count(b)) {
+                best = Some(root);
+            }
+        }
+    }
+
+    best.map(|root| strip_or_self(&abs_path, root))
+        .unwrap_or_else(|| path.to_path_buf())
+}
+
+fn absolutize(path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(path))
+            .ok()
+            .and_then(|p| fs::canonicalize(p).ok())
+            .unwrap_or_else(|| path.to_path_buf())
+    }
+}
+
+fn is_under_or_equal(path: &Path, root: &Path) -> bool {
+    path == root || path.starts_with(root)
+}
+
+fn component_count(path: &Path) -> usize {
+    path.components().count()
+}
+
+fn strip_or_self(path: &Path, prefix: &Path) -> PathBuf {
+    path.strip_prefix(prefix)
+        .map(|rel| {
+            if rel.as_os_str().is_empty() {
+                path.file_name().map(PathBuf::from).unwrap_or_else(|| path.to_path_buf())
+            } else {
+                rel.to_path_buf()
+            }
+        })
+        .unwrap_or_else(|_| path.to_path_buf())
+}
+
 fn has_dot_component(path: &Path) -> bool {
     use std::ffi::OsStr;
     for comp in path.components() {
@@ -208,4 +279,74 @@ fn has_dot_component(path: &Path) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_tmp_dir(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("join-lang-test-{name}-{nanos}"))
+    }
+
+    #[test]
+    fn display_path_uses_closest_input_parent() {
+        let root = unique_tmp_dir("display-closest-parent");
+        fs::create_dir_all(root.join("src/nested")).unwrap();
+        fs::write(root.join("README.md"), "readme").unwrap();
+        fs::write(root.join("src/main.rs"), "main").unwrap();
+        fs::write(root.join("src/nested/mod.rs"), "mod").unwrap();
+
+        let inputs = normalize_input_roots(&[
+            root.join("README.md"),
+            root.join("src"),
+        ]);
+
+        assert_eq!(
+            display_path(&root.join("src/main.rs"), &inputs, false),
+            PathBuf::from("main.rs")
+        );
+        assert_eq!(
+            display_path(&root.join("src/nested/mod.rs"), &inputs, false),
+            PathBuf::from("nested/mod.rs")
+        );
+        assert_eq!(
+            display_path(&root.join("README.md"), &inputs, false),
+            PathBuf::from("README.md")
+        );
+    }
+
+    #[test]
+    fn display_path_prefers_deepest_matching_input() {
+        let root = unique_tmp_dir("display-deepest-parent");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "main").unwrap();
+
+        let inputs = normalize_input_roots(&[root.clone(), root.join("src")]);
+        assert_eq!(
+            display_path(&root.join("src/main.rs"), &inputs, false),
+            PathBuf::from("main.rs")
+        );
+    }
+
+    #[test]
+    fn display_path_relative_to_cwd() {
+        let root = unique_tmp_dir("display-cwd-relative");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "main").unwrap();
+
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&root).unwrap();
+        let inputs = normalize_input_roots(&[root.join("src")]);
+        assert_eq!(
+            display_path(&root.join("src/main.rs"), &inputs, true),
+            PathBuf::from("src/main.rs")
+        );
+        std::env::set_current_dir(prev).unwrap();
+    }
 }

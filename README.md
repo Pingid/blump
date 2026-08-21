@@ -19,6 +19,7 @@ printf "src/main.rs\nREADME.md\n" | join
 # Options
   -e, --exclude <GLOB>       Exclude paths matching the glob (repeatable)
   -E, --no-default-excludes  Disable built-in default excludes
+  --relative-to-cwd          Write paths relative to the current directory
   --rust-strip-tests         Strip test modules and functions from Rust files
   -V, --version              Print version
 ```
