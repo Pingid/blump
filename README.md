@@ -1,20 +1,20 @@
-# join
+# blump
 
 Concatenate files to markdown with language-aware processing.
 
 ## Install
 
 ```bash
-cargo install --git https://github.com/Pingid/join
+cargo install --git https://github.com/Pingid/blump
 ```
 
 ## Usage
 
 ```bash
-join [OPTIONS] <FILE> [FILE...]
+blump [OPTIONS] <FILE> [FILE...]
 
 # Pipe a list of paths (one per line)
-printf "src/main.rs\nREADME.md\n" | join
+printf "src/main.rs\nREADME.md\n" | blump
 
 # Options
   -e, --exclude <GLOB>       Exclude paths matching the glob (repeatable)
@@ -28,18 +28,18 @@ printf "src/main.rs\nREADME.md\n" | join
 
 ```bash
 # Basic usage
-join ./src/*.rs > lib.md
+blump ./src/*.rs > lib.md
 
 # Exclude paths matching a glob (repeatable)
-join --exclude 'target/*' .
-join -e '*.log' -e 'node_modules/*' .
+blump --exclude 'target/*' .
+blump -e '*.log' -e 'node_modules/*' .
 
 # Strip test code from Rust files
-join --rust-strip-tests ./src/*.rs > production_code.md
+blump --rust-strip-tests ./src/*.rs > production_code.md
 
 # Disable built-in defaults
-join --no-default-excludes .
-join -E .
+blump --no-default-excludes .
+blump -E .
 ```
 
 ## Features
